@@ -1,0 +1,196 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Hash distributions</title>
+    <link href='http://fonts.googleapis.com/css?family=Ubuntu+Mono:400,700' rel='stylesheet' type='text/css'>  
+    <style>
+      body {
+        margin: 0; padding: 0;
+        font-family: 'Ubuntu Mono';
+        background: black;
+        color: white;
+      }
+
+      #scatter, #max {
+        position: absolute;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        right: 0;
+      }
+
+      #legend {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        z-index: 10;
+      }
+
+      #legend > span {
+        display: inline-block;
+        margin: 0;
+        padding: 9px;
+      }
+
+      .sum { background: rgb(255, 0, 255); }
+      .crc32 { background: rgb(255, 0, 0); }
+      .sha256 { background: rgb(0, 255, 0); color: black; }
+      .murmur { background: rgb(0, 100, 255); color: white; }
+      
+      #hash_count {
+        position: fixed;
+        top: 0;
+        right: 0;
+        text-align: right;
+      }
+
+      #hash_word {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        padding: 9px;
+        transform: translate(-50%, -50%);
+        text-align: center;
+        background: #222;
+        font-size: 18pt;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="scatter"></canvas>
+    <canvas id="max"></canvas>
+    <div id="legend">
+      <span class="sum">sum: <span id="sum_val"></span></span>
+      <span class="crc32">crc32: <span id="crc32_val"></span></span>
+      <span class="sha256">sha256: <span id="sha256_val"></span></span>
+      <span class="murmur">murmur: <span id="murmur_val"></span></span>
+    </div>
+    <div id="hash_word"></div>
+    <div id="hash_count"></div>
+    <script>
+      var scatterCtx = scatter.getContext('2d');
+      var maxCtx = max.getContext('2d');
+      //ctx.globalCompositeOperation = 'lighten';
+      scatterCtx.globalAlpha = 0.3;
+
+      var points = [];
+      var funcs = {};
+      var words = [];
+      var animating = true;
+      var total = 0;
+      var width = 1, height = 1;
+
+      var COLORS = (function() {
+        var legends = document.querySelectorAll('#legend > span');
+        var colors = {};
+        var i = legends.length; while (--i >= 0) {
+          colors[legends[i].getAttribute('class')] =
+            getComputedStyle(legends[i]).backgroundColor;
+        }
+        return colors;
+      })();
+
+      function size() {
+        words = [];
+        funcs = [];
+        total = 0;
+        width = window.innerWidth;
+        height = window.innerHeight;
+        scatter.width = width;
+        scatter.height = height;
+        max.width = width;
+        max.height = height;
+      }
+      size();
+      window.addEventListener('resize', size);
+
+
+      function draw_points() {
+        for (var i = 0; i != 500; ++i) {
+          var point = points.pop();
+          if (point) {
+            for (hash in point.hashes) {
+              var bin = funcs[hash] || (funcs[hash] = []);
+              var x = point.hashes[hash] % width;
+              bin[x] = bin[x] || 0;
+              var y = Math.random() * (bin[x] % height);
+              bin[x]++;
+
+              scatterCtx.fillStyle = COLORS[hash] || 'white'
+              scatterCtx.fillRect(x, y, 1, 1);
+              if (window[hash + '_val']) {
+                window[hash + '_val'].textContent = point.hashes[hash];
+              }
+              hash_word.textContent = point.str;
+              var idx = xytoi(x, y);
+              words[idx] = words[idx] || [];
+              words[idx].push(hash + '("' + point.str + '") = '
+                + point.hashes[hash]);
+            }
+            hash_count.textContent = ++total;
+          } else {
+            break;
+          }
+        }        
+      }
+
+      function draw_high_water_mark() {
+        maxCtx.clearRect(0, 0, width, height);
+        for (func in funcs) {
+          var y = funcs[func];
+          maxCtx.strokeStyle = COLORS[func] || 'white';
+          maxCtx.beginPath();
+          maxCtx.moveTo(y.length - 1, y[y.length - 1])
+          var x = y.length - 1; while(--x >= 0) {
+            maxCtx.lineTo(x, y[x]);
+          }
+          maxCtx.stroke();
+        }
+      }
+
+      function anim() {
+        if (animating) {
+          requestAnimationFrame(anim);
+        }
+
+        draw_points();
+        draw_high_water_mark();
+
+        if (points.length < 1000) {
+          fetch(1000);
+        }
+      }
+      anim();
+
+      function xytoi(x, y) {
+        return Math.floor(x + y * width);
+      }
+
+      function fetch(count) {
+        var xhr = new XMLHttpRequest();
+        xhr.onload = function() {
+          points = points.concat(xhr.response);
+        };
+        xhr.open('GET', '/points/' + count, true);
+        xhr.responseType = 'json';
+        xhr.send();
+      }
+      fetch(1000);
+
+      window.addEventListener('keydown', function(evt) {
+        if (evt.keyCode == 32) {
+          animating = !animating;
+          if (animating) anim();
+        }
+      });
+
+      window.addEventListener('mousemove', function(evt) {
+        var w = words[xytoi(evt.x, evt.y)];
+        if (w && w.length > 0) {
+          hash_word.innerHTML = w.join('<br>');
+        }
+      });
+    </script>
+  </body>
+</html>
